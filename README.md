@@ -18,7 +18,7 @@ Complete study guide with **concept coverage** for exam topics and **scenario-ba
 Track all exam concepts to ensure complete coverage.
 
 ### Compute Services
-- [ ] Lambda - Basics (handler, event, context, execution role)
+- [x] Lambda - Basics (handler, event, context, execution role)
 - [ ] Lambda - Configuration (timeout, memory, environment variables)
 - [ ] Lambda - Advanced (layers, versions, aliases, concurrency)
 - [ ] Lambda - VPC and networking
