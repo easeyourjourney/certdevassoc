@@ -1141,6 +1141,169 @@ Use when: Function needs to access resources in VPC (RDS, ElastiCache)
 Includes BasicExecutionRole + DynamoDB Streams read permissions
 Use when: Function is triggered by DynamoDB Streams
 
+### Understanding Trust Policy vs Permissions Policy
+
+This is one of the most confusing aspects of IAM roles. Let's clarify the difference.
+
+#### The Security Badge Analogy
+
+Think of an IAM Role like a **security badge** at a building:
+
+- **Trust Policy** = Who can **pick up** the badge (ID check at security desk)
+- **Permissions Policy** = What rooms the badge **unlocks** (access control)
+
+#### Trust Policy - Who Can Assume the Role?
+
+**Purpose:** Controls **WHO** is allowed to use this role.
+
+**Example - Trust Lambda Service:**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Service": "lambda.amazonaws.com"
+    },
+    "Action": "sts:AssumeRole"
+  }]
+}
+```
+
+**Translation:** "Allow the Lambda service to assume (use) this role"
+
+**Other Trust Policy Examples:**
+
+Trust EC2 Service:
+```json
+{"Principal": {"Service": "ec2.amazonaws.com"}}
+```
+
+Trust Another AWS Account:
+```json
+{"Principal": {"AWS": "arn:aws:iam::123456789012:root"}}
+```
+
+Trust a Specific User:
+```json
+{"Principal": {"AWS": "arn:aws:iam::123456789012:user/john"}}
+```
+
+#### Permissions Policy - What Can the Role Do?
+
+**Purpose:** Controls **WHAT** the role is allowed to do with AWS resources.
+
+**Example - Multi-Service Access:**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteLogsToCloudWatch",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadUploadedFiles",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::user-uploads-bucket/*"
+    },
+    {
+      "Sid": "SaveProcessedData",
+      "Effect": "Allow",
+      "Action": ["dynamodb:PutItem"],
+      "Resource": "arn:aws:dynamodb:us-east-1:123456789012:table/ProcessedUploads"
+    }
+  ]
+}
+```
+
+**Translation:** "This role can write CloudWatch logs, read from S3 bucket, and write to DynamoDB table"
+
+#### How They Work Together
+
+```
+Step 1: CHECK TRUST POLICY
+  ↓
+  "Can Lambda service assume this role?"
+  ✅ YES (Trust policy allows lambda.amazonaws.com)
+  ↓
+Step 2: Lambda assumes role (gets temporary credentials)
+  ↓
+Step 3: CHECK PERMISSIONS POLICY
+  ↓
+  "Does role have s3:GetObject permission?"
+  ✅ YES (Permissions policy includes s3:GetObject)
+  ↓
+Step 4: ACCESS GRANTED - Lambda reads from S3
+```
+
+#### What Happens Without Proper Policies?
+
+**Scenario 1: Trust Policy Missing or Wrong**
+
+Error:
+```
+AccessDenied: Lambda is not authorized to assume this role
+```
+
+Why: Lambda isn't allowed to "pick up the badge" - trust relationship doesn't exist
+
+**Scenario 2: Trust Policy OK, Permissions Missing**
+
+```python
+def lambda_handler(event, context):
+    s3 = boto3.client('s3')
+    s3.get_object(Bucket='my-bucket', Key='file.txt')  # ❌
+```
+
+Error:
+```
+AccessDeniedException: User: arn:aws:sts::123:assumed-role/MyRole/MyFunction
+is not authorized to perform: s3:GetObject on resource: arn:aws:s3:::my-bucket/file.txt
+```
+
+Why: Lambda assumed the role successfully, but the role doesn't have `s3:GetObject` permission
+
+#### Quick Comparison Table
+
+| Aspect | Trust Policy | Permissions Policy |
+|--------|--------------|-------------------|
+| **Question** | WHO can use this role? | WHAT can this role do? |
+| **Controls** | Which services/users/accounts | Which AWS resources/actions |
+| **Example Principal** | `lambda.amazonaws.com` | N/A (uses Action/Resource) |
+| **Example Action** | `sts:AssumeRole` | `s3:GetObject`, `dynamodb:PutItem` |
+| **Real-world** | ID check at security desk | Badge unlocking specific doors |
+| **When checked** | Before assuming role | After assuming role, during API calls |
+
+#### Mental Model: Two-Step Security
+
+**Step 1 (Trust Policy):**
+- Security guard: "Show me your employee ID"
+- Lambda service: "Here's my ID - I'm lambda.amazonaws.com"
+- Guard: "OK, you can take this badge" ✅
+
+**Step 2 (Permissions Policy):**
+- Lambda (with badge) tries to open S3 door
+- S3 door: "Does your badge have s3:GetObject permission?"
+- Badge: "Yes! See my permissions policy" ✅
+- S3 door: Opens ✅
+
+#### Key Takeaway
+
+**Both Required:** You need BOTH policies for Lambda to access AWS services:
+1. Trust Policy lets Lambda "pick up" the role
+2. Permissions Policy determines what the role can do
+
+Without trust policy → Lambda can't assume the role
+Without permissions → Lambda assumes role but can't access resources
+
 ### Creating Custom Execution Role
 
 **Step 1: Create Trust Policy** (`trust-policy.json`):
