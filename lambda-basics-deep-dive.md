@@ -104,6 +104,211 @@ aws lambda update-function-configuration \
 
 **Key takeaway:** The handler configuration (`filename.function_name`) tells Lambda which function to call. You control both the filename and function name - just make sure the configuration matches your actual code.
 
+### Exercise: Create Your First Lambda Function
+
+**Objective**: Create and test a simple Lambda function to understand handlers, events, and context.
+
+**What You'll Learn**:
+- How to create a Lambda function from scratch
+- How handlers receive and process events
+- How to use the context object
+- How to test Lambda functions
+
+**Step 1: Create the Lambda Function Code**
+
+Create a file called `my_first_lambda.py`:
+```python
+import json
+
+def my_handler(event, context):
+    """
+    My first Lambda function that demonstrates handler basics
+    """
+    # Use context to get runtime information
+    print(f"Function name: {context.function_name}")
+    print(f"Request ID: {context.aws_request_id}")
+    print(f"Memory limit: {context.memory_limit_in_mb} MB")
+    print(f"Time remaining: {context.get_remaining_time_in_millis()} ms")
+
+    # Process the event
+    name = event.get('name', 'World')
+    message = f"Hello, {name}!"
+
+    # Log the event for debugging
+    print(f"Received event: {json.dumps(event)}")
+
+    # Return response
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'message': message,
+            'requestId': context.aws_request_id
+        })
+    }
+```
+
+**Step 2: Create IAM Role for Lambda**
+
+```bash
+# Create trust policy
+aws iam create-role \
+  --role-name MyFirstLambdaRole \
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Service": "lambda.amazonaws.com"},
+      "Action": "sts:AssumeRole"
+    }]
+  }'
+
+# Attach basic execution policy (for CloudWatch Logs)
+aws iam attach-role-policy \
+  --role-name MyFirstLambdaRole \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+```
+
+**Step 3: Package and Deploy**
+
+```bash
+# Create deployment package
+zip function.zip my_first_lambda.py
+
+# Get your AWS account ID
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+# Create Lambda function
+aws lambda create-function \
+  --function-name MyFirstLambda \
+  --runtime python3.9 \
+  --role arn:aws:iam::${ACCOUNT_ID}:role/MyFirstLambdaRole \
+  --handler my_first_lambda.my_handler \
+  --zip-file fileb://function.zip \
+  --description "My first Lambda function to learn handlers"
+```
+
+**Step 4: Test Your Function**
+
+```bash
+# Test with a simple event
+aws lambda invoke \
+  --function-name MyFirstLambda \
+  --payload '{"name": "Student"}' \
+  response.json
+
+# View the response
+cat response.json
+
+# View the logs
+aws logs tail /aws/lambda/MyFirstLambda --follow
+```
+
+**Step 5: Experiment with Different Handlers**
+
+Add another function to `my_first_lambda.py`:
+```python
+def alternative_handler(event, context):
+    return {
+        'statusCode': 200,
+        'body': json.dumps({'message': 'This is a different handler!'})
+    }
+```
+
+Update the deployment and switch handlers:
+```bash
+# Update code
+zip function.zip my_first_lambda.py
+aws lambda update-function-code \
+  --function-name MyFirstLambda \
+  --zip-file fileb://function.zip
+
+# Switch to the alternative handler
+aws lambda update-function-configuration \
+  --function-name MyFirstLambda \
+  --handler my_first_lambda.alternative_handler
+
+# Test again
+aws lambda invoke \
+  --function-name MyFirstLambda \
+  --payload '{"name": "Student"}' \
+  response.json
+```
+
+**Expected Results**:
+- Function executes successfully with status code 200
+- Response includes your custom message
+- CloudWatch Logs show context information (function name, request ID, etc.)
+- You can switch between handlers without redeploying code
+
+**Cleanup** (when done):
+```bash
+# Delete function
+aws lambda delete-function --function-name MyFirstLambda
+
+# Delete role (detach policy first)
+aws iam detach-role-policy \
+  --role-name MyFirstLambdaRole \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+aws iam delete-role --role-name MyFirstLambdaRole
+
+# Remove local files
+rm function.zip response.json my_first_lambda.py
+```
+
+### Additional Tip: Understanding `--cli-binary-format`
+
+When testing Lambda functions, you might encounter this error:
+```
+Invalid base64: "{"name": "Student"}"
+```
+
+**Why This Happens:**
+
+AWS CLI v2 changed how it handles binary parameters like `--payload`. By default, it expects binary data to be base64-encoded.
+
+**The Solution:**
+
+Use the `--cli-binary-format raw-in-base64-out` flag:
+```bash
+aws lambda invoke \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"name": "Student"}' \
+  response.json
+```
+
+This tells AWS CLI:
+- **raw-in**: Accept raw input (plain JSON) - don't require base64
+- **base64-out**: Encode output as base64 if needed
+
+**Alternative Approaches:**
+
+**Option 1: Use a file** (recommended for complex payloads):
+```bash
+echo '{"name": "Student"}' > event.json
+aws lambda invoke \
+  --function-name MyFirstLambda \
+  --payload file://event.json \
+  response.json
+```
+
+**Option 2: Set it globally** (configure once, use everywhere):
+```bash
+# Add to ~/.aws/config
+[default]
+cli_binary_format = raw-in-base64-out
+```
+
+**Option 3: Base64 encode manually**:
+```bash
+aws lambda invoke \
+  --function-name MyFirstLambda \
+  --payload $(echo '{"name": "Student"}' | base64) \
+  response.json
+```
+
+**Best Practice:** For Lambda testing, either set `cli_binary_format = raw-in-base64-out` globally in your AWS config or use `file://` to pass payloads from files.
+
 ---
 
 ## 2. Event Object
