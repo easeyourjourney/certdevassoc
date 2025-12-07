@@ -72,6 +72,38 @@ aws lambda create-function \
 - Must accept **event** and **context** parameters
 - Can be **synchronous** or **asynchronous** (Node.js, Python 3.8+)
 
+### FAQ: Common Handler Questions
+
+**Q: Why is the entry point called a "handler"?**
+
+A: The term "handler" comes from event-driven programming. Lambda functions **handle** incoming events - whether that's an API request, S3 upload, or scheduled task. The naming convention is consistent with other event-driven systems (onClick handlers in JavaScript, HTTP request handlers in web frameworks, etc.). When something triggers your function, the handler is the method that handles that event.
+
+**Q: Can I change the function name from `lambda_handler`?**
+
+A: Yes! The name `lambda_handler` is just a **convention**, not a requirement. You can name your function anything you want - just update the handler configuration to match.
+
+**Examples:**
+```python
+# index.py
+def process_user_data(event, context):  # Custom name
+    return {'statusCode': 200}
+```
+
+```bash
+# Tell Lambda to use your custom function name
+--handler index.process_user_data
+```
+
+You can even have multiple functions in the same file and switch between them:
+```bash
+# Switch to a different function without redeploying code
+aws lambda update-function-configuration \
+  --function-name MyFunction \
+  --handler index.new_function_name
+```
+
+**Key takeaway:** The handler configuration (`filename.function_name`) tells Lambda which function to call. You control both the filename and function name - just make sure the configuration matches your actual code.
+
 ---
 
 ## 2. Event Object
