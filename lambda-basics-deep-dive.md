@@ -483,6 +483,281 @@ def lambda_handler(event, context):
     return f"Hello {name}, you are {age} years old"
 ```
 
+### Exercise: Working with Different Event Types
+
+**Objective**: Create a Lambda function that can handle multiple event sources and understand their structures.
+
+**Step 1: Create a Multi-Event Handler**
+
+Create `event_handler.py`:
+```python
+import json
+
+def lambda_handler(event, context):
+    """
+    Demonstrates handling different event types
+    """
+    print(f"Received event: {json.dumps(event, indent=2)}")
+
+    # Detect event source and process accordingly
+    if 'Records' in event:
+        # S3, SQS, or DynamoDB event
+        if event['Records'][0].get('eventSource') == 'aws:s3':
+            return handle_s3_event(event)
+        elif event['Records'][0].get('eventSource') == 'aws:sqs':
+            return handle_sqs_event(event)
+        elif event['Records'][0].get('eventSource') == 'aws:dynamodb':
+            return handle_dynamodb_event(event)
+
+    elif 'httpMethod' in event:
+        # API Gateway event
+        return handle_api_gateway_event(event)
+
+    elif 'source' in event and event['source'] == 'aws.events':
+        # CloudWatch scheduled event
+        return handle_scheduled_event(event)
+
+    else:
+        # Custom/direct invocation
+        return handle_custom_event(event)
+
+def handle_s3_event(event):
+    """Handle S3 bucket events"""
+    results = []
+    for record in event['Records']:
+        bucket = record['s3']['bucket']['name']
+        key = record['s3']['object']['key']
+        size = record['s3']['object']['size']
+        event_name = record['eventName']
+
+        results.append({
+            'eventType': 'S3',
+            'bucket': bucket,
+            'key': key,
+            'size': size,
+            'action': event_name
+        })
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps({'message': 'S3 event processed', 'results': results})
+    }
+
+def handle_sqs_event(event):
+    """Handle SQS queue messages"""
+    results = []
+    for record in event['Records']:
+        message_id = record['messageId']
+        body = json.loads(record['body'])
+
+        results.append({
+            'eventType': 'SQS',
+            'messageId': message_id,
+            'data': body
+        })
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps({'message': 'SQS messages processed', 'count': len(results)})
+    }
+
+def handle_dynamodb_event(event):
+    """Handle DynamoDB stream events"""
+    results = []
+    for record in event['Records']:
+        event_name = record['eventName']  # INSERT, MODIFY, REMOVE
+
+        result = {
+            'eventType': 'DynamoDB',
+            'action': event_name
+        }
+
+        if 'NewImage' in record['dynamodb']:
+            result['newData'] = record['dynamodb']['NewImage']
+        if 'OldImage' in record['dynamodb']:
+            result['oldData'] = record['dynamodb']['OldImage']
+
+        results.append(result)
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps({'message': 'DynamoDB events processed', 'results': results})
+    }
+
+def handle_api_gateway_event(event):
+    """Handle API Gateway HTTP requests"""
+    method = event['httpMethod']
+    path = event['path']
+
+    # Parse body if present
+    body = {}
+    if event.get('body'):
+        body = json.loads(event['body'])
+
+    # Get query parameters
+    query_params = event.get('queryStringParameters', {})
+
+    return {
+        'statusCode': 200,
+        'headers': {'Content-Type': 'application/json'},
+        'body': json.dumps({
+            'message': 'API Gateway event processed',
+            'method': method,
+            'path': path,
+            'queryParams': query_params,
+            'bodyReceived': body
+        })
+    }
+
+def handle_scheduled_event(event):
+    """Handle CloudWatch scheduled events"""
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'message': 'Scheduled event executed',
+            'time': event['time'],
+            'source': event['source']
+        })
+    }
+
+def handle_custom_event(event):
+    """Handle custom/direct invocations"""
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'message': 'Custom event processed',
+            'receivedData': event
+        })
+    }
+```
+
+**Step 2: Deploy the Function**
+
+```bash
+# Package the function
+zip event-function.zip event_handler.py
+
+# Get account ID
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+# Create or reuse the IAM role from previous exercise
+# (If you deleted it, recreate it using the same steps)
+
+# Deploy function
+aws lambda create-function \
+  --function-name EventHandler \
+  --runtime python3.9 \
+  --role arn:aws:iam::${ACCOUNT_ID}:role/MyFirstLambdaRole \
+  --handler event_handler.lambda_handler \
+  --zip-file fileb://event-function.zip \
+  --timeout 10
+```
+
+**Step 3: Test with Different Event Types**
+
+**Test 1: Custom Event (Direct Invocation)**
+```bash
+aws lambda invoke \
+  --function-name EventHandler \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"name": "John", "age": 30}' \
+  response.json && cat response.json
+```
+
+**Test 2: Simulated API Gateway Event**
+```bash
+aws lambda invoke \
+  --function-name EventHandler \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{
+    "httpMethod": "POST",
+    "path": "/users",
+    "queryStringParameters": {"page": "1"},
+    "body": "{\"name\":\"Jane\",\"email\":\"jane@example.com\"}"
+  }' \
+  response.json && cat response.json
+```
+
+**Test 3: Simulated S3 Event**
+```bash
+aws lambda invoke \
+  --function-name EventHandler \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{
+    "Records": [{
+      "eventSource": "aws:s3",
+      "eventName": "ObjectCreated:Put",
+      "s3": {
+        "bucket": {"name": "my-test-bucket"},
+        "object": {"key": "photos/image.jpg", "size": 2048}
+      }
+    }]
+  }' \
+  response.json && cat response.json
+```
+
+**Test 4: Simulated SQS Event**
+```bash
+aws lambda invoke \
+  --function-name EventHandler \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{
+    "Records": [{
+      "eventSource": "aws:sqs",
+      "messageId": "msg-123",
+      "body": "{\"orderId\":\"12345\",\"total\":99.99}"
+    }]
+  }' \
+  response.json && cat response.json
+```
+
+**Test 5: Simulated CloudWatch Scheduled Event**
+```bash
+aws lambda invoke \
+  --function-name EventHandler \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{
+    "version": "0",
+    "id": "scheduled-event-id",
+    "source": "aws.events",
+    "time": "2025-12-07T10:00:00Z",
+    "detail-type": "Scheduled Event",
+    "detail": {}
+  }' \
+  response.json && cat response.json
+```
+
+**Step 4: View Logs for All Tests**
+
+```bash
+# See all the events logged
+aws logs tail /aws/lambda/EventHandler --since 10m
+```
+
+**Expected Results:**
+- Each event type is correctly identified and processed
+- S3 events extract bucket name, key, and size
+- API Gateway events parse HTTP method, path, and body
+- SQS events iterate through message records
+- Scheduled events show timestamp information
+- Custom events process any JSON structure
+
+**Key Learnings:**
+1. **Event detection** - Different triggers have unique signatures
+2. **Records pattern** - S3, SQS, DynamoDB use `Records[]` array
+3. **Body parsing** - API Gateway and SQS nest JSON as strings
+4. **Conditional logic** - Use event structure to route to correct handler
+5. **Flexible design** - One function can handle multiple event sources
+
+**Cleanup:**
+```bash
+# Delete function
+aws lambda delete-function --function-name EventHandler
+
+# Remove files
+rm event-function.zip response.json event_handler.py
+```
+
 ---
 
 ## 3. Context Object
