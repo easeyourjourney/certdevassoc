@@ -20,7 +20,7 @@ Track all exam concepts to ensure complete coverage.
 ### Compute Services
 - [x] Lambda - Basics (handler, event, context, execution role)
 - [x] Lambda - Configuration (timeout, memory, environment variables)
-- [ ] Lambda - Advanced (layers, versions, aliases, concurrency)
+- [x] Lambda - Advanced (layers, versions, aliases, concurrency)
 - [ ] Lambda - VPC and networking
 - [ ] EC2 - Basics (instance types, user data, metadata)
 - [ ] EC2 - IAM roles for EC2
